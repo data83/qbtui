@@ -1,9 +1,14 @@
-import curses
 import requests
 import warnings
 import logging
 from urllib.parse import urlparse
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+# Windows support 🫡
+try:
+    import curses
+except ImportError:
+    import windows_curses as curses # When on windows | pip install windows-curses 
 
 # Suppress InsecureRequestWarning
 warnings.simplefilter('ignore', InsecureRequestWarning)
