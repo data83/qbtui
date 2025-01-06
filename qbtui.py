@@ -56,9 +56,6 @@ class QBittorrentTUI:
         curses.noecho()
         return user_input
 
-    import curses
-
-    import curses
 
     def password_prompt(self, stdscr, prompt_text):
         """
@@ -219,7 +216,7 @@ class QBittorrentTUI:
 
         # Prompt for URL, validate and store it.
         while True:
-            user_url = self.prompt(stdscr, "Enter qBittorrent Web URL (e.g., http://localhost:8080): ")
+            user_url = self.prompt(stdscr, "Enter qBittorrent Web URL (e.g., http://localhost:8080): ") or "http://localhost:8080"
             self.url = self.validate_url(user_url)
             if self.url:
                 break
