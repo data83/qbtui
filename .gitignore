@@ -1,0 +1,6 @@
+# Ignorer den virtuelle miljømappe
+venv/
+
+# Ignorer alle logfiler
+*.log
+
