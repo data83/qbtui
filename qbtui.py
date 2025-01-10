@@ -240,7 +240,7 @@ class QBittorrentTUI:
 
             if response.status_code == 200:
                 logging.info("Login successful.")
-                self.safe_addstr(stdscr, "Login successful! Press any key to continue...")
+                self.safe_addstr(stdscr, "\nLogin successful! Press any key to continue...")
                 stdscr.getch()
                 return True
             else:
@@ -367,6 +367,55 @@ class QBittorrentTUI:
                 # Position top_line so the last item is visible
                 top_line = max(0, len(items) - max_lines)
 
+    def fetch_all_torrent_info(self, stdscr):
+        response = self.session.get(f"{self.url}/api/v2/torrents/info")
+        if response.status_code != 200:
+            logging.error(
+                f"Error fetching torrents: Status {response.status_code}, "
+                f"Response: {response.text}"
+            )
+            self.safe_addstr(
+                stdscr,
+                f"Error fetching torrents: HTTP {response.status_code}\n"
+                f"{response.text}\nPress any key to return to main menu..."
+            )
+            stdscr.getch()
+            return
+
+        torrents = response.json()
+        return torrents
+    
+    def aggregate_trackers_for_each_torrent(self, stdscr, torrents):
+        """
+        Aggregates and maps trackers to the torrents they are associated with.
+        This function takes a list of torrents and gathers the tracker URLs associated with each torrent.
+        It then creates a dictionary (`tracker_map`) where each tracker URL is a key, and the value is a list of torrent hashes that use that tracker.
+        The function also displays a progress bar in a text user interface (TUI) to provide feedback on the progress of the aggregation process.
+
+        Parameters:
+        - stdscr: The curses window object used for displaying the progress bar.
+        - torrents: A list of dictionaries, each representing a torrent with relevant information such as its 'hash' and 'name'.
+
+        Returns:
+        - A dictionary where keys are tracker URLs and values are lists of torrent hashes associated with those trackers.
+        """
+        total_torrents = len(torrents)
+        tracker_map = {}
+        for idx, torrent in enumerate(torrents, start=1):
+            # Show progress info for gathering tracker data
+            message = f"Gathering trackers for torrent {idx}/{total_torrents}: {torrent['name']}"
+            self.draw_progress_bar(stdscr, idx, total_torrents, message=message)
+
+            torrent_trackers = self.get_torrent_trackers(torrent["hash"])
+            for tracker in torrent_trackers:
+                tracker_url = tracker["url"]
+                if tracker_url not in tracker_map:
+                    tracker_map[tracker_url] = []
+                tracker_map[tracker_url].append(torrent["hash"])
+                    # Clear progress bar area before the next step
+        stdscr.clear()
+        return tracker_map
+
     def remove_tracker(self, stdscr):
         """
         Aggregate all trackers from all torrents. Let the user select a tracker to remove
@@ -380,21 +429,7 @@ class QBittorrentTUI:
 
         # Fetch all torrent info
         try:
-            response = self.session.get(f"{self.url}/api/v2/torrents/info")
-            if response.status_code != 200:
-                logging.error(
-                    f"Error fetching torrents: Status {response.status_code}, "
-                    f"Response: {response.text}"
-                )
-                self.safe_addstr(
-                    stdscr,
-                    f"Error fetching torrents: HTTP {response.status_code}\n"
-                    f"{response.text}\nPress any key to return to main menu..."
-                )
-                stdscr.getch()
-                return
-
-            torrents = response.json()
+            torrents = self.fetch_all_torrent_info(stdscr)
             total_torrents = len(torrents)
             self.safe_addstr(stdscr, f"Total torrents found: {total_torrents}")
 
@@ -404,21 +439,7 @@ class QBittorrentTUI:
                 return
 
             # Aggregate trackers for each torrent
-            tracker_map = {}
-            for idx, torrent in enumerate(torrents, start=1):
-                # Show progress info for gathering tracker data
-                message = f"Gathering trackers for torrent {idx}/{total_torrents}: {torrent['name']}"
-                self.draw_progress_bar(stdscr, idx, total_torrents, message=message)
-
-                torrent_trackers = self.get_torrent_trackers(torrent["hash"])
-                for tracker in torrent_trackers:
-                    tracker_url = tracker["url"]
-                    if tracker_url not in tracker_map:
-                        tracker_map[tracker_url] = []
-                    tracker_map[tracker_url].append(torrent["hash"])
-
-            # Clear progress bar area before the next step
-            stdscr.clear()
+            tracker_map = self.aggregate_trackers_for_each_torrent(stdscr, torrents)
 
             if not tracker_map:
                 self.safe_addstr(stdscr, "No trackers found across all torrents.")
@@ -455,7 +476,7 @@ class QBittorrentTUI:
                 stdscr,
                 "Do you want to remove this tracker from all associated torrents? (yes/no): "
             ).lower()
-            if confirmation != "yes":
+            if confirmation not in ["yes", "y"]:
                 logging.info("Tracker removal operation canceled by user.")
                 self.safe_addstr(stdscr, "Operation canceled. Press any key to return...")
                 stdscr.getch()
@@ -500,6 +521,122 @@ class QBittorrentTUI:
             )
             stdscr.getch()
 
+    def add_tracker(self, stdscr):
+        """
+        Aggregate all trackers from all torrents. Let the user select a tracker to choose an existing tracker
+        in a scrollable list, confirm the operation, then add a new tracker to every
+        torrent in which it appears.
+
+        :param stdscr: The main curses screen.
+        """
+        stdscr.clear()
+        self.safe_addstr(stdscr, "=== Add a Tracker ===")
+
+                # Fetch all torrent info
+        try:
+            torrents = self.fetch_all_torrent_info(stdscr)
+            total_torrents = len(torrents)
+            self.safe_addstr(stdscr, f"Total torrents found: {total_torrents}")
+
+            if total_torrents == 0:
+                self.safe_addstr(stdscr, "No torrents found. Press any key to return...")
+                stdscr.getch()
+                return
+
+            # Aggregate trackers for each torrent
+            tracker_map = self.aggregate_trackers_for_each_torrent(stdscr, torrents)
+            
+            if not tracker_map:
+                self.safe_addstr(stdscr, "No trackers found across all torrents.")
+                self.safe_addstr(stdscr, "Press any key to return to the main menu...")
+                stdscr.getch()
+                return
+            
+             # Prepare a list of trackers for scrollable selection
+            trackers = sorted(tracker_map.keys())  # Sort for consistent display
+            tracker_lines = []
+            for i, tracker_url in enumerate(trackers, start=1):
+                line = f"{i}. {tracker_url} - Found in {len(tracker_map[tracker_url])} torrents"
+                tracker_lines.append(line)
+
+            # Use scrollable_select to get user's choice
+            title_text = "Choose a tracker, which torrents you want to add an addtional tracker to"
+            choice_idx = self.scrollable_select(stdscr, tracker_lines, title=title_text)
+            if choice_idx < 0:
+                # User canceled
+                self.safe_addstr(stdscr, "Operation canceled. Press any key to return...")
+                stdscr.getch()
+                return
+            
+            # Now we have the selected index
+            selected_tracker = trackers[choice_idx]
+            associated_torrents = tracker_map[selected_tracker]
+            stdscr.clear()
+            self.safe_addstr(
+                stdscr,
+                f"Selected tracker:\n{selected_tracker}\n\n"
+                f"It appears in {len(associated_torrents)} torrents.\n"
+            )
+            
+            # Promt for tracker url that should be added to torrents of the prior selected tracker
+            while True:
+                tracker_user_input = self.prompt(stdscr, "What tracker would you like to add?: ")
+                tracker_to_add = self.validate_url(tracker_user_input)
+                if self.url:
+                    break
+                else:
+                    self.safe_addstr(stdscr, "Invalid URL. Please try again.\n")
+
+            stdscr.clear()
+
+            self.safe_addstr(stdscr,f"Do you want to add {tracker_to_add} as tracker to all torrents "
+                                     f"associated with {selected_tracker}? ", start_newline=False)
+
+            confirmation = self.prompt(stdscr,"(yes/no): ").lower()
+            if confirmation not in ["yes", "y"]:
+                logging.info("Tracker adding operation canceled by user.")
+                self.safe_addstr(stdscr, "Operation canceled. Press any key to return...")
+                stdscr.getch()
+                return
+            
+            # Add tracker to all associated torrents
+            total_associated = len(associated_torrents)
+            stdscr.clear()
+            for idx, torrent_hash in enumerate(associated_torrents, start=1):
+                message = f"Adding tracker from torrent {idx}/{total_associated}"
+                self.draw_progress_bar(stdscr, idx, total_associated, message=message)
+
+                try:
+                    add_resp = self.session.post(
+                        f"{self.url}/api/v2/torrents/addTrackers",
+                        data={"hash": torrent_hash, "urls": tracker_to_add}
+                    )
+                    if add_resp.status_code == 200:
+                        logging.info(f"Successfully added tracker {tracker_to_add} to {torrent_hash}")
+                    else:
+                        logging.error(
+                            f"Failed to add tracker {tracker_to_add} to {torrent_hash}. "
+                            f"Status: {add_resp.status_code}, Response: {add_resp.text}"
+                        )
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"Network error adding tracker to {torrent_hash}: {e}")
+            # Clear final progress bar and notify user
+            stdscr.clear()
+            self.safe_addstr(
+                stdscr,
+                f"Tracker '{tracker_to_add}' added to all torrents associated with {selected_tracker}"
+            )
+            self.safe_addstr(stdscr, "Press any key to return to the main menu...")
+            stdscr.getch()
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error adding tracker: {e}")
+            self.safe_addstr(
+                stdscr,
+                f"Error adding tracker: {e}\nPress any key to return."
+            )
+            stdscr.getch()
+
     def main_menu(self, stdscr):
         """
         Display the main menu, handle user input, and call the appropriate
@@ -510,7 +647,8 @@ class QBittorrentTUI:
         stdscr.clear()
         self.safe_addstr(stdscr, "=== qBittorrent TUI ===")
         self.safe_addstr(stdscr, "1. Remove a Tracker")
-        self.safe_addstr(stdscr, "2. Exit")
+        self.safe_addstr(stdscr, "2. Add Tracker to all torrents with an specific existing Tracker")
+        self.safe_addstr(stdscr, "3. Exit")
         self.safe_addstr(stdscr, "Select an option: ", wrap=False, start_newline=False)
 
         curses.echo()
@@ -520,6 +658,8 @@ class QBittorrentTUI:
         if choice == '1':
             self.remove_tracker(stdscr)
         elif choice == '2':
+            self.add_tracker(stdscr)
+        elif choice == '3':
             # Exit gracefully
             logging.info("User selected Exit.")
             stdscr.clear()
