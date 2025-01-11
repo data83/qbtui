@@ -1,0 +1,5 @@
+# This file lists all the dependencies that are required by the project
+# The dependencies can be installed using `pip install -r requirements.txt`
+
+requests
+windows-curses; platform_system == "Windows" # Only required on Windows for curses support
