@@ -1,0 +1,34 @@
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# # 🚀Feel free to add additional rules to this file as needed this is just a starting point🚀 # #
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+# Indicate that this is the root configuration file
+root = true
+
+# Global settings applicable to all files
+[*]
+indent_style = space          # Use spaces for indentation
+indent_size = 4               # Set indentation size to 4 spaces
+tab_width = 4                 # Tabs are equivalent to 4 spaces
+end_of_line = lf              # Use LF as the line ending (cross-platform compatibility)
+insert_final_newline = true   # Ensure a newline at the end of files
+trim_trailing_whitespace = true  # Remove trailing whitespace on save
+
+# Settings for Python and related files
+[*.{py,py.tpl,rst,ini}]
+indent_style = space          # Use spaces for Python and related files
+indent_size = 4               # Set indentation size to 4 spaces
+tab_width = 4                 # Tabs equivalent to 4 spaces for uniformity
+
+# Settings for shell scripts and Makefiles
+[*.{sh,bat.tpl,Makefile.tpl}]
+indent_style = tab            # Use tabs for shell scripts and Makefiles
+indent_size = 4               # Visual tab width of 4
+tab_width = 4                 # Match tab width to indentation size
+
+# Settings for YAML files
+[*.yml]
+indent_style = space          # YAML uses spaces for indentation
+indent_size = 2               # Set indentation size to 2 spaces
+tab_width = 2                 # Match tab width for consistency

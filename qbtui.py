@@ -8,17 +8,18 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 try:
     import curses
 except ImportError:
-    import windows_curses as curses # When on windows | pip install windows-curses 
+    import windows_curses as curses  # When on windows | pip install windows-curses
 
 # Suppress InsecureRequestWarning
-warnings.simplefilter('ignore', InsecureRequestWarning)
+warnings.simplefilter("ignore", InsecureRequestWarning)
 
 # Configure logging
 logging.basicConfig(
     filename="qbtui.log",
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - %(levelname)s - %(message)s",
 )
+
 
 class QBittorrentTUI:
     """
@@ -56,7 +57,6 @@ class QBittorrentTUI:
         curses.noecho()
         return user_input
 
-
     def password_prompt(self, stdscr, prompt_text):
         """
         Safely read a password without echoing it back in plain text.
@@ -70,10 +70,10 @@ class QBittorrentTUI:
             curses.noecho()  # Disable echoing input
             self.safe_addstr(stdscr, prompt_text, wrap=False, start_newline=False)
             password = ""
-            
+
             while True:
                 char = stdscr.getch()
-                
+
                 if char in (curses.KEY_ENTER, 10, 13):
                     break
                 elif char in (curses.KEY_BACKSPACE, 127):
@@ -89,9 +89,9 @@ class QBittorrentTUI:
                     stdscr.addstr("*")
                 else:
                     continue
-            
+
             return password.strip()
-        
+
         finally:
             curses.echo()  # Ensure echo is restored
 
@@ -127,7 +127,7 @@ class QBittorrentTUI:
             else:
                 # Truncate the line if it exceeds screen width, and print
                 if len(line) > width:
-                    line = line[:width - 1]
+                    line = line[: width - 1]
                 try:
                     stdscr.addstr(line)
                 except curses.error:
@@ -171,36 +171,100 @@ class QBittorrentTUI:
 
         # Write the optional message
         stdscr.move(bar_y, 0)
-        truncated_message = message[:width - 1] if len(message) > width - 1 else message
+        truncated_message = (
+            message[: width - 1] if len(message) > width - 1 else message
+        )
         stdscr.addstr(truncated_message)
 
         # Draw progress bar
         bar_line = f"[{bar}] {percent_text}"
         bar_line_y = bar_y + 1
         stdscr.move(bar_line_y, 0)
-        bar_line_display = bar_line[:width - 1]  # Truncate if needed
+        bar_line_display = bar_line[: width - 1]  # Truncate if needed
         stdscr.addstr(bar_line_display)
 
         stdscr.refresh()
 
     def validate_url(self, input_url):
         """
-        Validate and (lightly) normalize the qBittorrent URL.
-        If the user did not provide a scheme (http/https), assume http.
+        Validate the URL without any modifications.
 
-        :param input_url: The URL string provided by the user.
-        :return: A normalized URL string, or an empty string if invalid.
+        This method checks if the given URL is valid. If the URL is invalid,
+        it returns a tuple with `False` and an error message explaining the issue.
+        If the URL is valid, it returns a tuple with `True` and an empty string.
+
+        :param input_url: str - The URL string provided by the user.
+        :return: tuple - (bool, str) where the first element is a boolean indicating
+                         if the URL is valid, and the second is an error message if invalid.
+        """
+        if not input_url:
+            return False, "The URL is empty."
+
+        parsed = urlparse(input_url)
+
+        if not parsed.scheme:
+            return False, "The URL is missing a scheme (e.g., http or https)."
+
+        if not parsed.netloc:
+            return False, "The URL is missing a valid domain or IP address."
+
+        return True, ""
+
+    def normalize_url(self, input_url, default_scheme="http"):
+        """
+        Validate and normalize the provided URL.
+
+        This method ensures the URL has a valid scheme and removes any trailing slashes.
+        If no scheme is provided, it defaults to the specified `default_scheme` (e.g., http).
+        If the URL is invalid, an empty string is returned.
+
+        :param input_url: str - The URL string provided by the user.
+        :param default_scheme: str - The default scheme to use if none is provided (default: "http").
+        :return: str - A normalized URL string, or an empty string if the URL is invalid.
         """
         if not input_url:
             return ""
 
-        parsed = urlparse(input_url)
-        # If scheme is missing, default to http
-        if not parsed.scheme:
-            input_url = "http://" + input_url
+        is_valid, error_message = self.validate_url(input_url)
+        if not is_valid:
+            # Try adding the default scheme if it was missing
+            parsed = urlparse(input_url)
+            if not parsed.scheme:
+                input_url = f"{default_scheme}://{input_url}"
+                is_valid, error_message = self.validate_url(input_url)
 
-        # Strip trailing slashes
+            if not is_valid:
+                return ""
+
+        # Normalize the URL by removing trailing slashes
         return input_url.rstrip("/")
+
+    def is_operation_confirmed(self, stdscr, message, operation_name):
+        """
+        Repeatedly prompts the user for confirmation until valid input is provided.
+
+        :param stdscr: The curses screen object for displaying prompts.
+        :param message: The message to display when asking for confirmation.
+        :param operation_name: The name of the operation being confirmed.
+        :return: True if the user confirms the operation, False otherwise.
+        """
+        while True:
+            self.safe_addstr(stdscr, message, start_newline=False)
+            confirmation = self.prompt(stdscr, f"' (yes/y or no/n): ").strip().lower()
+            if confirmation in ["yes", "y"]:
+                return True
+            elif confirmation in ["no", "n"]:
+                logging.info(f"'{operation_name}' operation canceled by user.")
+                self.safe_addstr(
+                    stdscr,
+                    f"'{operation_name}' was canceled. Press any key to return...",
+                )
+                stdscr.getch()
+                return False
+            else:
+                self.safe_addstr(
+                    stdscr, "Invalid input. Please enter 'yes/y' or 'no/n'.\n"
+                )
 
     def login(self, stdscr):
         """
@@ -216,12 +280,20 @@ class QBittorrentTUI:
 
         # Prompt for URL, validate and store it.
         while True:
-            user_url = self.prompt(stdscr, "Enter qBittorrent Web URL (e.g., http://localhost:8080): ") or "http://localhost:8080"
-            self.url = self.validate_url(user_url)
-            if self.url:
+            user_url = (
+                self.prompt(
+                    stdscr, "Enter qBittorrent Web URL (e.g., http://localhost:8080): "
+                )
+                or "http://localhost:8080"
+            )
+            is_valid, error_message = self.validate_url(user_url)
+            if is_valid:
+                self.url = self.normalize_url(user_url)
                 break
             else:
-                self.safe_addstr(stdscr, "Invalid URL. Please try again.\n")
+                self.safe_addstr(
+                    stdscr, f"Invalid URL: {error_message}. Please try again.\n"
+                )
 
         # Prompt for Username
         self.username = self.prompt(stdscr, "Enter Username: ")
@@ -231,32 +303,35 @@ class QBittorrentTUI:
 
         # Perform login
         try:
-            headers = {'Referer': self.url}
+            headers = {"Referer": self.url}
             response = self.session.post(
                 f"{self.url}/api/v2/auth/login",
                 data={"username": self.username, "password": self.password},
-                headers=headers
+                headers=headers,
             )
 
             if response.status_code == 200:
                 logging.info("Login successful.")
-                self.safe_addstr(stdscr, "\nLogin successful! Press any key to continue...")
+                self.safe_addstr(
+                    stdscr, "\nLogin successful! Press any key to continue..."
+                )
                 stdscr.getch()
                 return True
             else:
-                logging.error(f"Login failed! Status: {response.status_code}, Response: {response.text}")
+                logging.error(
+                    f"Login failed! Status: {response.status_code}, Response: {response.text}"
+                )
                 self.safe_addstr(
                     stdscr,
                     f"Login failed (HTTP {response.status_code}). "
-                    f"Check credentials and URL.\nPress any key to exit."
+                    f"Check credentials and URL.\nPress any key to exit.",
                 )
                 stdscr.getch()
                 return False
         except requests.exceptions.RequestException as e:
             logging.error(f"Error connecting to qBittorrent: {e}")
             self.safe_addstr(
-                stdscr,
-                f"Error connecting to qBittorrent: {e}\nPress any key to exit."
+                stdscr, f"Error connecting to qBittorrent: {e}\nPress any key to exit."
             )
             stdscr.getch()
             return False
@@ -296,7 +371,7 @@ class QBittorrentTUI:
             return -1
 
         selected_idx = 0  # Currently highlighted index
-        top_line = 0      # Index of the topmost visible line
+        top_line = 0  # Index of the topmost visible line
 
         while True:
             stdscr.clear()
@@ -308,7 +383,7 @@ class QBittorrentTUI:
             max_lines = height - 4
 
             # Determine the range of items to display
-            visible_items = items[top_line:top_line + max_lines]
+            visible_items = items[top_line : top_line + max_lines]
 
             # Display each visible item
             for i, line in enumerate(visible_items):
@@ -320,7 +395,7 @@ class QBittorrentTUI:
                     stdscr.attroff(curses.A_REVERSE)
                 else:
                     self.safe_addstr(stdscr, line, wrap=False)
-            
+
             # Additional help prompt
             help_line = (
                 "[UP/DOWN] scroll, [PgUp/PgDn] faster scroll, "
@@ -333,19 +408,19 @@ class QBittorrentTUI:
             # Get user input
             key = stdscr.getch()
 
-            if key in (ord('q'), 27):  # 27 is ESC
+            if key in (ord("q"), 27):  # 27 is ESC
                 # User canceled
                 return -1
             elif key in (curses.KEY_ENTER, 10, 13):
                 # User pressed Enter: return the selected index
                 return selected_idx
-            elif key in (curses.KEY_UP, ord('k')):
+            elif key in (curses.KEY_UP, ord("k")):
                 # Move selection up
                 selected_idx = max(0, selected_idx - 1)
                 # Adjust top_line if needed
                 if selected_idx < top_line:
                     top_line = selected_idx
-            elif key in (curses.KEY_DOWN, ord('j')):
+            elif key in (curses.KEY_DOWN, ord("j")):
                 # Move selection down
                 selected_idx = min(len(items) - 1, selected_idx + 1)
                 # If selection goes past bottom visible line, scroll
@@ -377,14 +452,14 @@ class QBittorrentTUI:
             self.safe_addstr(
                 stdscr,
                 f"Error fetching torrents: HTTP {response.status_code}\n"
-                f"{response.text}\nPress any key to return to main menu..."
+                f"{response.text}\nPress any key to return to main menu...",
             )
             stdscr.getch()
             return
 
         torrents = response.json()
         return torrents
-    
+
     def aggregate_trackers_for_each_torrent(self, stdscr, torrents):
         """
         Aggregates and maps trackers to the torrents they are associated with.
@@ -412,7 +487,7 @@ class QBittorrentTUI:
                 if tracker_url not in tracker_map:
                     tracker_map[tracker_url] = []
                 tracker_map[tracker_url].append(torrent["hash"])
-                    # Clear progress bar area before the next step
+                # Clear progress bar area before the next step
         stdscr.clear()
         return tracker_map
 
@@ -434,7 +509,9 @@ class QBittorrentTUI:
             self.safe_addstr(stdscr, f"Total torrents found: {total_torrents}")
 
             if total_torrents == 0:
-                self.safe_addstr(stdscr, "No torrents found. Press any key to return...")
+                self.safe_addstr(
+                    stdscr, "No torrents found. Press any key to return..."
+                )
                 stdscr.getch()
                 return
 
@@ -455,10 +532,14 @@ class QBittorrentTUI:
                 tracker_lines.append(line)
 
             # Use scrollable_select to get user's choice
-            choice_idx = self.scrollable_select(stdscr, tracker_lines, title="Remove a Tracker")
+            choice_idx = self.scrollable_select(
+                stdscr, tracker_lines, title="Remove a Tracker"
+            )
             if choice_idx < 0:
                 # User canceled
-                self.safe_addstr(stdscr, "Operation canceled. Press any key to return...")
+                self.safe_addstr(
+                    stdscr, "Operation canceled. Press any key to return..."
+                )
                 stdscr.getch()
                 return
 
@@ -469,18 +550,16 @@ class QBittorrentTUI:
             self.safe_addstr(
                 stdscr,
                 f"Selected tracker:\n{selected_tracker}\n\n"
-                f"It appears in {len(associated_torrents)} torrents.\n"
+                f"It appears in {len(associated_torrents)} torrents.\n",
             )
 
-            confirmation = self.prompt(
+            # Confirm the operation
+            if not self.is_operation_confirmed(
                 stdscr,
-                "Do you want to remove this tracker from all associated torrents? (yes/no): "
-            ).lower()
-            if confirmation not in ["yes", "y"]:
-                logging.info("Tracker removal operation canceled by user.")
-                self.safe_addstr(stdscr, "Operation canceled. Press any key to return...")
-                stdscr.getch()
-                return
+                "Do you want to remove this tracker from all associated torrents?",
+                "Tracker removal",
+            ):
+                return  # Handle user cancellation
 
             # Remove the tracker from all associated torrents
             total_associated = len(associated_torrents)
@@ -492,23 +571,27 @@ class QBittorrentTUI:
                 try:
                     remove_resp = self.session.post(
                         f"{self.url}/api/v2/torrents/removeTrackers",
-                        data={"hash": torrent_hash, "urls": selected_tracker}
+                        data={"hash": torrent_hash, "urls": selected_tracker},
                     )
                     if remove_resp.status_code == 200:
-                        logging.info(f"Successfully removed tracker {selected_tracker} from {torrent_hash}")
+                        logging.info(
+                            f"Successfully removed tracker {selected_tracker} from {torrent_hash}"
+                        )
                     else:
                         logging.error(
                             f"Failed to remove tracker {selected_tracker} from {torrent_hash}. "
                             f"Status: {remove_resp.status_code}, Response: {remove_resp.text}"
                         )
                 except requests.exceptions.RequestException as e:
-                    logging.error(f"Network error removing tracker from {torrent_hash}: {e}")
+                    logging.error(
+                        f"Network error removing tracker from {torrent_hash}: {e}"
+                    )
 
             # Clear final progress bar and notify user
             stdscr.clear()
             self.safe_addstr(
                 stdscr,
-                f"Tracker '{selected_tracker}' removed from all associated torrents."
+                f"Tracker '{selected_tracker}' removed from all associated torrents.",
             )
             self.safe_addstr(stdscr, "Press any key to return to the main menu...")
             stdscr.getch()
@@ -516,8 +599,7 @@ class QBittorrentTUI:
         except requests.exceptions.RequestException as e:
             logging.error(f"Error removing tracker: {e}")
             self.safe_addstr(
-                stdscr,
-                f"Error removing tracker: {e}\nPress any key to return."
+                stdscr, f"Error removing tracker: {e}\nPress any key to return."
             )
             stdscr.getch()
 
@@ -532,27 +614,29 @@ class QBittorrentTUI:
         stdscr.clear()
         self.safe_addstr(stdscr, "=== Add a Tracker ===")
 
-                # Fetch all torrent info
+        # Fetch all torrent info
         try:
             torrents = self.fetch_all_torrent_info(stdscr)
             total_torrents = len(torrents)
             self.safe_addstr(stdscr, f"Total torrents found: {total_torrents}")
 
             if total_torrents == 0:
-                self.safe_addstr(stdscr, "No torrents found. Press any key to return...")
+                self.safe_addstr(
+                    stdscr, "No torrents found. Press any key to return..."
+                )
                 stdscr.getch()
                 return
 
             # Aggregate trackers for each torrent
             tracker_map = self.aggregate_trackers_for_each_torrent(stdscr, torrents)
-            
+
             if not tracker_map:
                 self.safe_addstr(stdscr, "No trackers found across all torrents.")
                 self.safe_addstr(stdscr, "Press any key to return to the main menu...")
                 stdscr.getch()
                 return
-            
-             # Prepare a list of trackers for scrollable selection
+
+            # Prepare a list of trackers for scrollable selection
             trackers = sorted(tracker_map.keys())  # Sort for consistent display
             tracker_lines = []
             for i, tracker_url in enumerate(trackers, start=1):
@@ -564,10 +648,12 @@ class QBittorrentTUI:
             choice_idx = self.scrollable_select(stdscr, tracker_lines, title=title_text)
             if choice_idx < 0:
                 # User canceled
-                self.safe_addstr(stdscr, "Operation canceled. Press any key to return...")
+                self.safe_addstr(
+                    stdscr, "Operation canceled. Press any key to return..."
+                )
                 stdscr.getch()
                 return
-            
+
             # Now we have the selected index
             selected_tracker = trackers[choice_idx]
             associated_torrents = tracker_map[selected_tracker]
@@ -575,30 +661,34 @@ class QBittorrentTUI:
             self.safe_addstr(
                 stdscr,
                 f"Selected tracker:\n{selected_tracker}\n\n"
-                f"It appears in {len(associated_torrents)} torrents.\n"
+                f"It appears in {len(associated_torrents)} torrents.\n",
             )
-            
-            # Promt for tracker url that should be added to torrents of the prior selected tracker
+
+            # Prompt for tracker URL that should be added to torrents of the prior selected tracker
             while True:
-                tracker_user_input = self.prompt(stdscr, "What tracker would you like to add?: ")
-                tracker_to_add = self.validate_url(tracker_user_input)
-                if self.url:
+                tracker_user_input = self.prompt(
+                    stdscr, "What tracker would you like to add?: "
+                )
+                is_valid, error_message = self.validate_url(tracker_user_input)
+                if is_valid:
+                    tracker_to_add = self.normalize_url(
+                        tracker_user_input, default_scheme="https"
+                    )
                     break
                 else:
-                    self.safe_addstr(stdscr, "Invalid URL. Please try again.\n")
+                    self.safe_addstr(
+                        stdscr, f"Invalid URL: {error_message}. Please try again.\n"
+                    )
 
+            # Confirm the operation
             stdscr.clear()
+            if not self.is_operation_confirmed(
+                stdscr,
+                f"Do you want to add, '{tracker_to_add}' as tracker to all {len(associated_torrents)} torrents associated with '{selected_tracker}'",
+                "Adding tracker",
+            ):
+                return  # Handle user cancellation
 
-            self.safe_addstr(stdscr,f"Do you want to add {tracker_to_add} as tracker to all torrents "
-                                     f"associated with {selected_tracker}? ", start_newline=False)
-
-            confirmation = self.prompt(stdscr,"(yes/no): ").lower()
-            if confirmation not in ["yes", "y"]:
-                logging.info("Tracker adding operation canceled by user.")
-                self.safe_addstr(stdscr, "Operation canceled. Press any key to return...")
-                stdscr.getch()
-                return
-            
             # Add tracker to all associated torrents
             total_associated = len(associated_torrents)
             stdscr.clear()
@@ -609,22 +699,26 @@ class QBittorrentTUI:
                 try:
                     add_resp = self.session.post(
                         f"{self.url}/api/v2/torrents/addTrackers",
-                        data={"hash": torrent_hash, "urls": tracker_to_add}
+                        data={"hash": torrent_hash, "urls": tracker_to_add},
                     )
                     if add_resp.status_code == 200:
-                        logging.info(f"Successfully added tracker {tracker_to_add} to {torrent_hash}")
+                        logging.info(
+                            f"Successfully added tracker '{tracker_to_add}' to '{torrent_hash}'"
+                        )
                     else:
                         logging.error(
-                            f"Failed to add tracker {tracker_to_add} to {torrent_hash}. "
+                            f"Failed to add tracker '{tracker_to_add}' to '{torrent_hash}'. "
                             f"Status: {add_resp.status_code}, Response: {add_resp.text}"
                         )
                 except requests.exceptions.RequestException as e:
-                    logging.error(f"Network error adding tracker to {torrent_hash}: {e}")
+                    logging.error(
+                        f"Network error adding tracker to '{torrent_hash}': {e}"
+                    )
             # Clear final progress bar and notify user
             stdscr.clear()
             self.safe_addstr(
                 stdscr,
-                f"Tracker '{tracker_to_add}' added to all torrents associated with {selected_tracker}"
+                f"Tracker '{tracker_to_add}' added to all torrents associated with '{selected_tracker}'",
             )
             self.safe_addstr(stdscr, "Press any key to return to the main menu...")
             stdscr.getch()
@@ -632,8 +726,7 @@ class QBittorrentTUI:
         except requests.exceptions.RequestException as e:
             logging.error(f"Error adding tracker: {e}")
             self.safe_addstr(
-                stdscr,
-                f"Error adding tracker: {e}\nPress any key to return."
+                stdscr, f"Error adding tracker: {e}\nPress any key to return."
             )
             stdscr.getch()
 
@@ -647,7 +740,9 @@ class QBittorrentTUI:
         stdscr.clear()
         self.safe_addstr(stdscr, "=== qBittorrent TUI ===")
         self.safe_addstr(stdscr, "1. Remove a Tracker")
-        self.safe_addstr(stdscr, "2. Add Tracker to all torrents with an specific existing Tracker")
+        self.safe_addstr(
+            stdscr, "2. Add Tracker to all torrents with an specific existing Tracker"
+        )
         self.safe_addstr(stdscr, "3. Exit")
         self.safe_addstr(stdscr, "Select an option: ", wrap=False, start_newline=False)
 
@@ -655,11 +750,11 @@ class QBittorrentTUI:
         choice = stdscr.getstr().decode("utf-8").strip()
         curses.noecho()
 
-        if choice == '1':
+        if choice == "1":
             self.remove_tracker(stdscr)
-        elif choice == '2':
+        elif choice == "2":
             self.add_tracker(stdscr)
-        elif choice == '3':
+        elif choice == "3":
             # Exit gracefully
             logging.info("User selected Exit.")
             stdscr.clear()
@@ -683,9 +778,11 @@ class QBittorrentTUI:
             while True:
                 self.main_menu(stdscr)
 
+
 def main():
     tui = QBittorrentTUI()
     curses.wrapper(tui.run)
+
 
 if __name__ == "__main__":
     main()
