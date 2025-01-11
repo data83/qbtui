@@ -11,6 +11,7 @@ This program was created with the assistance of AI. **Use at your own risk.**
 - **Terminal-based User Interface**: Uses Python's `curses` library for a console-based interactive UI.
 - **Login to qBittorrent Web API**: Authenticate using a username and password.
 - **Remove Trackers**: View and select trackers to remove from multiple torrents.
+- **Add Trackers**: View and select trackers to add to multiple torrents. 🆕🆕🆕
 - **Scrollable Lists**: Navigate through large lists of trackers using keyboard controls.
 - **Progress Bars**: Visual progress updates for tracker-related operations.
 
