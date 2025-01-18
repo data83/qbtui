@@ -80,7 +80,8 @@ pyinstaller --onefile --console your_program.py
 
 2. **Main Menu**:
    - **Option 1**: Remove a tracker.
-   - **Option 2**: Exit the program.
+   - **Option 2**: Add a tracker.
+   - **Option 3**: Exit the program.
 
 3. **Remove Tracker**:
    - The program aggregates trackers from all torrents.
@@ -88,6 +89,11 @@ pyinstaller --onefile --console your_program.py
    - Select a tracker to remove using the arrow keys and press `Enter`.
    - Confirm the removal when prompted.
 
+4. **Add Tracker**
+   - The program aggregates trackers from all torrents.
+   - Use the scrollable list to navigate to choose an existing tracker you want to add a mirror to.
+   - Type in the URL of the mirror you want to add
+   - Confirm the the new tracker is being added to the chosen existing tracker
 ---
 
 ## Disclaimer
