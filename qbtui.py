@@ -310,7 +310,7 @@ class QBittorrentTUI:
                 headers=headers,
             )
 
-            if response.status_code == 200:
+            if response.status_code in (200,204):
                 logging.info("Login successful.")
                 self.safe_addstr(
                     stdscr, "\nLogin successful! Press any key to continue..."
